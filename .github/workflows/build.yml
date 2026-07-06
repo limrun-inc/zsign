@@ -1,5 +1,7 @@
 name: Build Multi-Platform
 
+# Fork note (limrun-inc/zsign): releases are tagged v<upstream>-limrun.N off
+# the limrun-fixes branch; pushing the tag builds and publishes the release.
 on:
   push:
     tags:
