@@ -7,8 +7,15 @@ ECHO := $(shell if echo -e "" | grep -q '^-e'; then echo "echo"; else echo "echo
 GREEN = \033[0;32m
 NC = \033[0m
 
+OPENSSL_STATIC ?= 0
+ifeq ($(OPENSSL_STATIC),1)
+OPENSSL_PREFIX ?= $(shell pkg-config --variable=prefix openssl)
+OPENSSL_INCLUDE = -I$(OPENSSL_PREFIX)/include
+OPENSSL_LIB = $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a
+else
 OPENSSL_INCLUDE = $(shell pkg-config --cflags openssl)
 OPENSSL_LIB = $(shell pkg-config --libs openssl)
+endif
 
 INCLUDES = -I../../src -I../../src/common -I../../src/third-party/zlib
 INCLUDES += $(OPENSSL_INCLUDE)
