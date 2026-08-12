@@ -83,12 +83,12 @@ jobs:
     env:
       OPENSSL_VERSION: 3.6.3
       OPENSSL_SHA256: 243a86649cf6f23eeb6a2ff2456e09e5d77dd9018a54d3d96b0c6bdd6ba6c7f1
-      OPENSSL_PREFIX: ${{ runner.temp }}/openssl-static
     steps:
       - uses: actions/checkout@v4
 
       - name: build static OpenSSL
         run: |
+          openssl_prefix="$RUNNER_TEMP/openssl-static"
           archive="$RUNNER_TEMP/openssl-${OPENSSL_VERSION}.tar.gz"
           curl --retry 5 --retry-all-errors -fsSL \
             "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz" \
@@ -97,8 +97,8 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP/openssl-${OPENSSL_VERSION}"
           ./Configure darwin64-arm64-cc no-shared no-module no-tests \
-            --prefix="$OPENSSL_PREFIX" \
-            --openssldir="$OPENSSL_PREFIX/ssl"
+            --prefix="$openssl_prefix" \
+            --openssldir="$openssl_prefix/ssl"
           make -j"$(sysctl -n hw.ncpu)"
           make install_sw
 
@@ -111,7 +111,7 @@ jobs:
           fi
           cd build/macos
           make clean
-          make VERSION="$VER" OPENSSL_STATIC=1 OPENSSL_PREFIX="$OPENSSL_PREFIX" -j"$(sysctl -n hw.ncpu)"
+          make VERSION="$VER" OPENSSL_STATIC=1 OPENSSL_PREFIX="$RUNNER_TEMP/openssl-static" -j"$(sysctl -n hw.ncpu)"
           chmod +x ../../bin/zsign
 
       - name: smoke test
@@ -119,13 +119,14 @@ jobs:
 
       - name: verify legacy PKCS12 without provider modules
         run: |
+          openssl="$RUNNER_TEMP/openssl-static/bin/openssl"
           tmp="$RUNNER_TEMP/legacy-p12-smoke"
           mkdir "$tmp"
-          OPENSSL_CONF=/dev/null "$OPENSSL_PREFIX/bin/openssl" req \
+          OPENSSL_CONF=/dev/null "$openssl" req \
             -x509 -newkey rsa:2048 -nodes -days 1 \
             -subj "/CN=zsign-static-test" \
             -keyout "$tmp/key.pem" -out "$tmp/cert.pem" >/dev/null 2>&1
-          OPENSSL_CONF=/dev/null "$OPENSSL_PREFIX/bin/openssl" pkcs12 \
+          OPENSSL_CONF=/dev/null "$openssl" pkcs12 \
             -export -legacy -passout pass:test \
             -inkey "$tmp/key.pem" -in "$tmp/cert.pem" \
             -out "$tmp/legacy.p12"
