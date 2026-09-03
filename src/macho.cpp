@@ -201,7 +201,7 @@ bool ZMachO::ReallocCodeSignSpace()
 		}
 
 		uint32_t uFatHeaderSize = sizeof(fat_header) + (uint32_t)arrArches.size() * sizeof(fat_arch);
-		uint32_t uPadding1 = (uAlign - uFatHeaderSize % uAlign);
+		uint32_t uPadding1 = (uAlign - uFatHeaderSize % uAlign) % uAlign;
 		uint32_t uOffset = uFatHeaderSize + uPadding1;
 		for (size_t i = 0; i < arrArches.size(); i++) {
 			fat_arch& arch = arrArches[i];
@@ -212,7 +212,9 @@ bool ZMachO::ReallocCodeSignSpace()
 			arch.size = (FAT_MAGIC == fath.magic) ? uMachOSize : BE(uMachOSize);
 
 			uOffset += uMachOSize;
-			uOffset = uOffset + (uAlign - uOffset % uAlign);
+			if (i + 1 < arrArches.size()) {
+				uOffset += (uAlign - uOffset % uAlign) % uAlign;
+			}
 		}
 
 		string strNewFatMachOFile = m_strFile + ".fato";
@@ -238,11 +240,12 @@ bool ZMachO::ReallocCodeSignSpace()
 				ZFile::RemoveFile(strNewFatMachOFile.c_str());
 				return false;
 			}
-			string strPadding;
-			strPadding.append((uAlign - sSize % uAlign), 0);
-
 			ZFile::AppendFile(strNewFatMachOFile.c_str(), (const char*)pData, sSize);
-			ZFile::AppendFile(strNewFatMachOFile.c_str(), strPadding);
+			if (i + 1 < arrArches.size()) {
+				string strPadding;
+				strPadding.append((uAlign - sSize % uAlign) % uAlign, 0);
+				ZFile::AppendFile(strNewFatMachOFile.c_str(), strPadding);
+			}
 
 			ZFile::UnmapFile((void*)pData, sSize);
 			ZFile::RemoveFile(strNewArchOFile.c_str());

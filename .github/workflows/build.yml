@@ -117,6 +117,9 @@ jobs:
       - name: smoke test
         run: ./bin/zsign -v
 
+      - name: verify fat binaries have no trailing padding
+        run: test/macos/fat-tail-padding.sh
+
       - name: verify legacy PKCS12 without provider modules
         run: |
           openssl="$RUNNER_TEMP/openssl-static/bin/openssl"
