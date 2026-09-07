@@ -10,6 +10,9 @@ public:
 public:
 	bool Init(const char* szFile);
 	bool InitV(const char* szPath, ...);
+	// True when Init failed before parsing: the file could not be opened or
+	// mapped. A malformed Mach-O stays mapped and does not count.
+	bool MapFailed() const { return NULL == m_pBase; }
 	bool Free();
 	void PrintInfo();
 	bool CheckSignature() const;
