@@ -43,23 +43,29 @@ void* ZFile::MapFile(const char* path, size_t offset, size_t size, size_t* psize
 #else
 
 	int fd = open(path, ro ? O_RDONLY : O_RDWR);
-	if (fd >= 0) {
-		if (size <= 0) {
-			struct stat st = { 0 };
-			fstat(fd, &st);
-			size = st.st_size;
-		}
-
-		if (NULL != psize) {
-			*psize = size;
-		}
-
-		base = mmap(NULL, size, ro ? PROT_READ : PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
-		if (MAP_FAILED == base) {
-			base = NULL;
-		}
-		close(fd);
+	if (fd < 0) {
+		ZLog::ErrorV("MapFile: Failed in open! %s, %s\n", path, strerror(errno));
+		return NULL;
 	}
+
+	if (size <= 0) {
+		struct stat st = { 0 };
+		fstat(fd, &st);
+		size = st.st_size;
+	}
+
+	if (NULL != psize) {
+		*psize = size;
+	}
+
+	base = mmap(NULL, size, ro ? PROT_READ : PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
+	if (MAP_FAILED == base) {
+		if (size > 0) { // an empty file cannot be mapped, callers hash it as empty
+			ZLog::ErrorV("MapFile: Failed in mmap! %s, %s\n", path, strerror(errno));
+		}
+		base = NULL;
+	}
+	close(fd);
 
 #endif
 
