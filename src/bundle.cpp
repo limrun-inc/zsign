@@ -318,6 +318,10 @@ bool ZBundle::SignNode(jvalue& jvNode)
 				if (!macho.Sign(m_pSignAsset, m_bForceSign, "", "", "", "")) {
 					return false;
 				}
+			} else if (macho.MapFailed()) {
+				// Listed by its Mach-O magic, so an unopenable file would ship
+				// unsigned inside a bundle reported as signed. MapFile logged why.
+				return false;
 			} else {
 				ZLog::WarnV(">>> Warning: Skipping non-Mach-O file: \t%s\n", strFile.c_str());
 			}
