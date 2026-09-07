@@ -816,6 +816,47 @@ bool ZSignAsset::GetCMSInfo(uint8_t * pCMSData, uint32_t uCMSLength, jvalue & jv
 	return true;
 }
 
+static bool EntitlementValueContains(const jvalue& value, const char* needle)
+{
+	if (value.is_string()) {
+		return string::npos != value.as_string().find(needle);
+	}
+	if (value.is_array()) {
+		for (size_t i = 0; i < value.size(); i++) {
+			if (EntitlementValueContains(value.at(i), needle)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+static const char* UnsafeProfileICloudEntitlement(const jvalue& entitlements)
+{
+	const char* developmentContainers = "com.apple.developer.icloud-container-development-container-identifiers";
+	if (entitlements.has(developmentContainers)) {
+		return developmentContainers;
+	}
+
+	const char* wildcardKeys[] = {
+		"com.apple.developer.icloud-services",
+		"com.apple.developer.icloud-container-identifiers",
+		"com.apple.developer.ubiquity-container-identifiers",
+		"com.apple.developer.ubiquity-kvstore-identifier",
+	};
+	for (const char* key : wildcardKeys) {
+		if (entitlements.has(key) && EntitlementValueContains(entitlements[key], "*")) {
+			return key;
+		}
+	}
+
+	const char* environment = "com.apple.developer.icloud-container-environment";
+	if (entitlements.has(environment) && EntitlementValueContains(entitlements[environment], "Development")) {
+		return environment;
+	}
+	return NULL;
+}
+
 ZSignAsset::ZSignAsset()
 {
 	m_evpPKey = NULL;
@@ -851,7 +892,10 @@ bool ZSignAsset::Init(
 	}
 
 	ZFile::ReadFile(strProvFile.c_str(), m_strProvData);
-	ZFile::ReadFile(strEntitleFile.c_str(), m_strEntitleData);
+	if (!strEntitleFile.empty() && !ZFile::ReadFile(strEntitleFile.c_str(), m_strEntitleData)) {
+		ZLog::Error(">>> Can't read entitlements file!\n");
+		return false;
+	}
 	if (m_strProvData.empty()) {
 		ZLog::Error(">>> Can't find provision file!\n");
 		return false;
@@ -864,6 +908,11 @@ bool ZSignAsset::Init(
 			m_strApplicationId = jvProv["Entitlements"]["application-identifier"].as_cstr();
 			m_strTeamId = jvProv["TeamIdentifier"][0].as_cstr();
 			if (m_strEntitleData.empty()) {
+				const char* unsafeEntitlement = UnsafeProfileICloudEntitlement(jvProv["Entitlements"]);
+				if (NULL != unsafeEntitlement) {
+					ZLog::ErrorV(">>> Provisioning profile entitlement %s is an allowlist value; use -e to provide concrete app entitlements.\n", unsafeEntitlement);
+					return false;
+				}
 				jvProv["Entitlements"].style_write_plist(m_strEntitleData);
 			}
 		}

@@ -72,6 +72,10 @@ jobs:
         if: matrix.cross == false
         run: ./bin/zsign -v
 
+      - name: verify profile iCloud entitlements require explicit values
+        if: matrix.cross == false
+        run: test/profile-icloud-entitlements.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: zsign-linux-${{ matrix.arch }}
