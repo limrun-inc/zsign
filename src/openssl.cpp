@@ -826,6 +826,81 @@ ZSignAsset::ZSignAsset()
 	m_bSHA256Only = false;
 }
 
+// Turns a profile's iCloud allowlist into the values Xcode writes into an
+// app signature. A profile's Entitlements dictionary is what an app MAY
+// claim, and for App IDs with iCloud enabled Apple fills it with patterns:
+// icloud-services "*", ubiquity-kvstore-identifier "TEAM.*", a two-element
+// icloud-container-environment array and a development-only container
+// list. Xcode resolves these against the target's entitlements file; when
+// zsign signs without -e it has no such file, and App Store processing
+// rejects the patterns verbatim (ITMS-90045, ITMS-90046, ITMS-90211).
+// Every other key is already a concrete value and is left untouched.
+static void NormalizeProfileEntitlements(jvalue& jvEnt)
+{
+	if (!jvEnt.is_object()) {
+		return;
+	}
+	// A profile that does not explicitly allow task access is a
+	// distribution profile (App Store, Ad Hoc, Enterprise).
+	bool bDistribution = !(jvEnt.has("get-task-allow") && jvEnt["get-task-allow"].as_bool());
+
+	const char* szDevContainers = "com.apple.developer.icloud-container-development-container-identifiers";
+	if (bDistribution && jvEnt.has(szDevContainers)) {
+		jvEnt.erase(szDevContainers);
+		ZLog::PrintV(">>> Entitlement %s: dropped for distribution\n", szDevContainers);
+	}
+
+	const char* szEnvironment = "com.apple.developer.icloud-container-environment";
+	if (jvEnt.has(szEnvironment) && jvEnt[szEnvironment].is_array()) {
+		jvalue& jvEnvs = jvEnt[szEnvironment];
+		const char* szPick = NULL;
+		for (size_t i = 0; i < jvEnvs.size(); i++) {
+			const char* szEnv = jvEnvs[i].as_cstr();
+			if (bDistribution && 0 == strcmp(szEnv, "Production")) {
+				szPick = "Production";
+				break;
+			}
+			if (!bDistribution && 0 == strcmp(szEnv, "Development")) {
+				szPick = "Development";
+				break;
+			}
+		}
+		if (NULL == szPick && jvEnvs.size() > 0) {
+			szPick = jvEnvs[(size_t)0].as_cstr();
+		}
+		if (NULL != szPick) {
+			string strPick = szPick;
+			jvEnt[szEnvironment] = jvalue(strPick);
+			ZLog::PrintV(">>> Entitlement %s: %s\n", szEnvironment, strPick.c_str());
+		}
+	}
+
+	const char* szServices = "com.apple.developer.icloud-services";
+	if (jvEnt.has(szServices) && jvEnt[szServices].is_string() && jvEnt[szServices] == "*") {
+		// The profile cannot say which services the app uses; both are
+		// covered by "*" and a declared but unused service has no effect.
+		jvalue jvServices(jvalue::E_ARRAY);
+		jvServices.push_back("CloudKit");
+		jvServices.push_back("CloudDocuments");
+		jvEnt[szServices] = jvServices;
+		ZLog::PrintV(">>> Entitlement %s: CloudKit, CloudDocuments\n", szServices);
+	}
+
+	const char* szKVStore = "com.apple.developer.ubiquity-kvstore-identifier";
+	if (jvEnt.has(szKVStore) && jvEnt[szKVStore].is_string()) {
+		string strKVStore = jvEnt[szKVStore].as_string();
+		string strAppID = jvEnt.has("application-identifier") ? jvEnt["application-identifier"].as_string() : string();
+		// Xcode's default is $(TeamIdentifierPrefix)$(CFBundleIdentifier),
+		// which is the profile's application-identifier when the profile
+		// names an explicit App ID.
+		if (strKVStore.size() >= 2 && 0 == strKVStore.compare(strKVStore.size() - 2, 2, ".*")
+			&& !strAppID.empty() && string::npos == strAppID.find('*')) {
+			jvEnt[szKVStore] = jvalue(strAppID);
+			ZLog::PrintV(">>> Entitlement %s: %s\n", szKVStore, strAppID.c_str());
+		}
+	}
+}
+
 bool ZSignAsset::Init(
 	const string& strCertFile,
 	const string& strPKeyFile, 
@@ -864,6 +939,7 @@ bool ZSignAsset::Init(
 			m_strApplicationId = jvProv["Entitlements"]["application-identifier"].as_cstr();
 			m_strTeamId = jvProv["TeamIdentifier"][0].as_cstr();
 			if (m_strEntitleData.empty()) {
+				NormalizeProfileEntitlements(jvProv["Entitlements"]);
 				jvProv["Entitlements"].style_write_plist(m_strEntitleData);
 			}
 		}
