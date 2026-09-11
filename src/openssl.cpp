@@ -826,15 +826,12 @@ ZSignAsset::ZSignAsset()
 	m_bSHA256Only = false;
 }
 
-// Turns a profile's iCloud allowlist into the values Xcode writes into an
-// app signature. A profile's Entitlements dictionary is what an app MAY
-// claim, and for App IDs with iCloud enabled Apple fills it with patterns:
-// icloud-services "*", ubiquity-kvstore-identifier "TEAM.*", a two-element
-// icloud-container-environment array and a development-only container
-// list. Xcode resolves these against the target's entitlements file; when
-// zsign signs without -e it has no such file, and App Store processing
-// rejects the patterns verbatim (ITMS-90045, ITMS-90046, ITMS-90211).
-// Every other key is already a concrete value and is left untouched.
+// Turns a profile's allowlist into the values Xcode writes into an app
+// signature. A profile's Entitlements dictionary is what an app MAY claim.
+// Xcode resolves it against the target's entitlements file; zsign without
+// -e has no such file. Each rule below fixes one allowlist entry that App
+// Store processing rejects verbatim. Every other key is a concrete value
+// and is left untouched.
 static void NormalizeProfileEntitlements(jvalue& jvEnt)
 {
 	if (!jvEnt.is_object()) {
@@ -897,6 +894,24 @@ static void NormalizeProfileEntitlements(jvalue& jvEnt)
 			&& !strAppID.empty() && string::npos == strAppID.find('*')) {
 			jvEnt[szKVStore] = jvalue(strAppID);
 			ZLog::PrintV(">>> Entitlement %s: %s\n", szKVStore, strAppID.c_str());
+		}
+	}
+
+	const char* szNFCFormats = "com.apple.developer.nfc.readersession.formats";
+	if (jvEnt.has(szNFCFormats) && jvEnt[szNFCFormats].is_array()) {
+		// Apple lists NDEF, TAG and PACE for every NFC-enabled App ID. NDEF
+		// is the pre-iOS 13 value; App Store processing rejects it in any
+		// iOS 13+ build (ITMS-90778) and Xcode writes TAG only. The drop is
+		// unconditional. An NDEF-only list is kept: the profile allows
+		// nothing else, and an empty array is not a value Xcode writes.
+		jvalue& jvFormats = jvEnt[szNFCFormats];
+		bool bDropped = false;
+		for (int n = jvFormats.index("NDEF"); n >= 0 && jvFormats.size() > 1; n = jvFormats.index("NDEF")) {
+			jvFormats.erase((size_t)n);
+			bDropped = true;
+		}
+		if (bDropped) {
+			ZLog::PrintV(">>> Entitlement %s: dropped NDEF\n", szNFCFormats);
 		}
 	}
 }
